@@ -126,18 +126,8 @@ if __name__ == '__main__':
     mylabels = read_positiveLabels(initFrame,endFrame,filepath)
     neg_labels = negativeLabels(features,mylabels)
     mydata, endlabels =  allFeatures(features, mylabels, neg_labels)
-    print 'I am before RF'
     rf = vigra.learning.RandomForest()
     rf.learnRF(mydata.astype("float32"), (np.asarray(endlabels)).astype("uint32").reshape(-1,1))
-    print 'I am after RF'
-    # test_Features = compute_features(gt_rawimage,read_in_images(5,7),5,7)
-    # check_labels = read_positiveLabels(5,7)
-    # test_data = allFeatures_random_neg(test_Features, check_labels,10) #20 negative examples
-    # result = rf.predictLabels(test_data.astype('float32'))
-    # # The function predictLabels puts a treshold of 0.5 in the probabilities and chooses between 1 and 0
-    # print 'Prediction for the bad transitions'
-    # print result[-10:]
-
 
     # Cross Validation
     X, Y = allFeatures(features, mylabels, neg_labels)
