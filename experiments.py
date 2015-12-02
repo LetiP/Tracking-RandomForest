@@ -91,7 +91,7 @@ def allFeatures(features, labels, neg_labels):
             if k not in labels[i].tolist():
                 x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
                 lab.append(0)
-    return x,lab
+    return x,np.asarray(lab)
 
 def allFeatures_random_neg(features, labels, n_neg):
     j=0
@@ -126,9 +126,10 @@ if __name__ == '__main__':
     mylabels = read_positiveLabels(initFrame,endFrame,filepath)
     neg_labels = negativeLabels(features,mylabels)
     mydata, endlabels =  allFeatures(features, mylabels, neg_labels)
+    print 'I am before RF'
     rf = vigra.learning.RandomForest()
     rf.learnRF(mydata.astype("float32"), (np.asarray(endlabels)).astype("uint32").reshape(-1,1))
-
+    print 'I am after RF'
     # test_Features = compute_features(gt_rawimage,read_in_images(5,7),5,7)
     # check_labels = read_positiveLabels(5,7)
     # test_data = allFeatures_random_neg(test_Features, check_labels,10) #20 negative examples
