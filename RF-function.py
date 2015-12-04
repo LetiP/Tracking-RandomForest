@@ -111,24 +111,37 @@ def allFeatures_random_neg(features, labels, n_neg):
                 x = np.vstack((x,getFeatures(features[i],features[i+1],m[0],m[1])))
     return x
 
-def TrainRF(filepath, rawimage_filename, initFrame, endFrame):
-	gt_rawimage = vigra.impex.readHDF5(gt_rawimage_filename, 'volume/data')
-    features = compute_features(gt_rawimage,read_in_images(initFrame,endFrame, filepath),initFrame,endFrame)
+def TrainRF(filepath, gt_rawimage_filename, initFrame, endFrame):
+    gt_rawimage = vigra.impex.readHDF5(gt_rawimage_filename, 'volume/data')
+    features = compute_features(gt_rawimage, read_in_images(initFrame, endFrame, filepath), initFrame, endFrame)
     mylabels = read_positiveLabels(initFrame,endFrame,filepath)
     neg_labels = negativeLabels(features,mylabels)
     mydata, endlabels =  allFeatures(features, mylabels, neg_labels)
     rf = vigra.learning.RandomForest()
     rf.learnRF(mydata.astype("float32"), (np.asarray(endlabels)).astype("uint32").reshape(-1,1))
-return rf
-
+    return rf
 
 if __name__ == '__main__':
+    import argparse
 
-    initFrame = 0
-    endFrame = 20
+    parser = argparse.ArgumentParser(description="trainRF")
+    parser.add_argument("filepath",
+                        help="read from filepath", metavar="FILE")
+
+    parser.add_argument("rawimage_filename",
+                        help="filepath+name of the raw image", metavar="FILE")
+    parser.add_argument("initFrame", default=0, type=int, 
+                        help="where to begin reading the frames")
+    parser.add_argument("endFrame", default=0, type=int, 
+                        help="where to end frames")
+    args = parser.parse_args()
+    TrainRF(args.filepath, args.rawimage_filename, args.initFrame, args.endFrame) #returns learned RF
+
+    #initFrame = 0
+    #endFrame = 20
 
     #read in raw images  - here ALL
-    filepath = '/net/hciserver03/storage/lparcala/mitocheck_006--01--06/manual_tracking2/'
-    gt_rawimage_filename = '/net/hciserver03/storage/lparcala/mitocheck_006--01--06/mitocheck_94570_2D+t_00-92.h5'
+    #filepath = '/net/hciserver03/storage/lparcala/mitocheck_006--01--06/manual_tracking2/'
+    #gt_rawimage_filename = '/net/hciserver03/storage/lparcala/mitocheck_006--01--06/mitocheck_94570_2D+t_00-92.h5'
     
-	TrainRF(filepath, rawimage_filename, initFrame, endFrame) #returns learned RF
+	#TrainRF(filepath, rawimage_filename, initFrame, endFrame) #returns learned RF
