@@ -50,8 +50,8 @@ def getFeatures(f1,f2,o1,o2): #what to do with NaNs?
             res2.append((f1[key][o1]*f2[key][o2]).tolist() )  #prepare for flattening
     x= np.asarray(flatten(res)) #flatten
     x2= np.asarray(flatten(res2)) #flatten
-    x= x[~np.isnan(x)]
-    x2= x2[~np.isnan(x2)]
+    #x= x[~np.isnan(x)]
+    #x2= x2[~np.isnan(x2)] #not getting the nans out YET
     return np.concatenate((x,x2))
 
 #read in 'n2-n1' of labels
@@ -91,6 +91,7 @@ def allFeatures(features, labels, neg_labels):
             if k not in labels[i].tolist():
                 x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
                 lab.append(0)
+    x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
     return x,np.asarray(lab)
 
 def allFeatures_random_neg(features, labels, n_neg):
