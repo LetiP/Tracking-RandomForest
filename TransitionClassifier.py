@@ -108,20 +108,20 @@ def allFeatures_for_prediction(features, labels):
     return x
 
 class TransitionClassifier:
-    def __init__(self, filepath, rawimage_filename, initFrame, endFrame):
-        gt_rawimage = vigra.impex.readHDF5(rawimage_filename, 'volume/data')
-        features = compute_features(gt_rawimage,read_in_images(initFrame,endFrame, filepath),initFrame,endFrame)
-        mylabels = read_positiveLabels(initFrame,endFrame,filepath)
-        neg_labels = negativeLabels(features,mylabels)
-        self.mydata, self.endlabels =  allFeatures(features, mylabels, neg_labels)
+    def __init__(self):
         self.rf = vigra.learning.RandomForest()
+        self.mydata = None
+        self.labels = []
         
     def addSample(self, features, label):
-        self.endlabels.append(label)
+        self.labels = np.concatenate((np.array(self.labels),label))
+        if self.mydata == None:
+            self.mydata = features[1]
         self.mydata = np.vstack((self.mydata, features))
+        self.mydata = np.delete(self.mydata,0, axis = 0)
     
     def train(self):
-        self.rf.learnRF(self.mydata.astype("float32"), (np.asarray(self.endlabels)).astype("uint32").reshape(-1,1))
+        self.rf.learnRF(self.mydata.astype("float32"), (np.asarray(self.labels)).astype("uint32").reshape(-1,1))
     
     def predictSample(self, test_data):
         return self.rf.predictLabels(test_data.astype('float32'))
@@ -145,7 +145,19 @@ if __name__ == '__main__':
     parser.add_argument("outputFilename",
                         help="save RF into file", metavar="FILE")
     args = parser.parse_args()
-    TC = TransitionClassifier(args.filepath, args.rawimage_filename, args.initFrame, args.endFrame)
+
+    filepath = args.filepath
+    rawimage_filename = args.rawimage_filename
+    initFrame = args.initFrame
+    endFrame = args.endFrame
+
+    gt_rawimage = vigra.impex.readHDF5(rawimage_filename, 'volume/data')
+    features = compute_features(gt_rawimage,read_in_images(initFrame,endFrame, filepath),initFrame,endFrame)
+    mylabels = read_positiveLabels(initFrame,endFrame,filepath)
+    neg_labels = negativeLabels(features,mylabels)
+    mydata, endlabels =  allFeatures(features, mylabels, neg_labels)
+
+    TC = TransitionClassifier()
+    TC.addSample(mydata, endlabels)
     TC.train()
-    TC.writeRF(args.outputFilename)
- #writes learned RF to disk
+    TC.writeRF(args.outputFilename) #writes learned RF to disk
