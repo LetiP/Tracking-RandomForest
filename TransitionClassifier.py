@@ -31,7 +31,7 @@ def compute_features(raw_image, labeled_image, n1, n2):
     return allFeat
 
 #return a feature vector of two objects (f1-f2,f1*f2)
-def getFeatures(f1,f2,o1,o2): #what to do with NaNs?
+def getFeatures(f1,f2,o1,o2):
     res=[]; res2=[]
     for key in f1:
         if key == "Global<Maximum >" or key=="Global<Minimum >": #this ones have only one element
@@ -93,8 +93,9 @@ def allFeatures(features, labels, neg_labels):
     x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
     return x,np.asarray(lab)
 
-def allFeatures_random_neg(features, labels, n_neg):
+def allFeatures_for_prediction(features, labels):
     j=0
+    lab=[]
     for i in range(0,len(features)-1):
         for k in labels[i]:
             if j == 0:
@@ -102,25 +103,31 @@ def allFeatures_random_neg(features, labels, n_neg):
                 j+=1
             else:
                 x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
-        #negative examples
-        count_negative = 0
-        while(count_negative < n_neg):
-            m = np.random.randint(1, max(labels[i][0])-10,size=2)
-            if m not in labels[i]:
-                count_negative+=1
-                x = np.vstack((x,getFeatures(features[i],features[i+1],m[0],m[1])))
+            lab.append(1)
+    x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
     return x
 
-def TrainRF(filepath, gt_rawimage_filename, initFrame, endFrame, outputFilename):
-    gt_rawimage = vigra.impex.readHDF5(gt_rawimage_filename, 'volume/data')
-    features = compute_features(gt_rawimage, read_in_images(initFrame, endFrame, filepath), initFrame, endFrame)
-    mylabels = read_positiveLabels(initFrame,endFrame,filepath)
-    neg_labels = negativeLabels(features,mylabels)
-    mydata, endlabels =  allFeatures(features, mylabels, neg_labels)
-    rf = vigra.learning.RandomForest()
-    rf.learnRF(mydata.astype("float32"), (np.asarray(endlabels)).astype("uint32").reshape(-1,1))
-    rf.writeHDF5(outputFilename)
-    #return rf
+class TransitionClassifier:
+    def __init__(self, filepath, rawimage_filename, initFrame, endFrame):
+        gt_rawimage = vigra.impex.readHDF5(rawimage_filename, 'volume/data')
+        features = compute_features(gt_rawimage,read_in_images(initFrame,endFrame, filepath),initFrame,endFrame)
+        mylabels = read_positiveLabels(initFrame,endFrame,filepath)
+        neg_labels = negativeLabels(features,mylabels)
+        self.mydata, self.endlabels =  allFeatures(features, mylabels, neg_labels)
+        self.rf = vigra.learning.RandomForest()
+        
+    def addSample(self, features, label):
+        self.endlabels.append(label)
+        self.mydata = np.vstack((self.mydata, features))
+    
+    def train(self):
+        self.rf.learnRF(self.mydata.astype("float32"), (np.asarray(self.endlabels)).astype("uint32").reshape(-1,1))
+    
+    def predictSample(self, test_data):
+        return self.rf.predictLabels(test_data.astype('float32'))
+
+    def writeRF(self, outputFilename):
+        self.rf.writeHDF5(outputFilename)
 
 if __name__ == '__main__':
     import argparse
@@ -138,13 +145,7 @@ if __name__ == '__main__':
     parser.add_argument("outputFilename",
                         help="save RF into file", metavar="FILE")
     args = parser.parse_args()
-    TrainRF(args.filepath, args.rawimage_filename, args.initFrame, args.endFrame, args.outputFilename) #writes learned RF to disk
-
-    #initFrame = 0
-    #endFrame = 20
-
-    #read in raw images  - here ALL
-    #filepath = '/net/hciserver03/storage/lparcala/mitocheck_006--01--06/manual_tracking2/'
-    #gt_rawimage_filename = '/net/hciserver03/storage/lparcala/mitocheck_006--01--06/mitocheck_94570_2D+t_00-92.h5'
-    
-	#TrainRF(filepath, rawimage_filename, initFrame, endFrame) #returns learned RF
+    TC = TransitionClassifier(args.filepath, args.rawimage_filename, args.initFrame, args.endFrame)
+    TC.train()
+    TC.writeRF(args.outputFilename)
+ #writes learned RF to disk
