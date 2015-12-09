@@ -111,7 +111,7 @@ def allFeatures_random_neg(features, labels, n_neg):
                 x = np.vstack((x,getFeatures(features[i],features[i+1],m[0],m[1])))
     return x
 
-def TrainRF(filepath, gt_rawimage_filename, initFrame, endFrame):
+def TrainRF(filepath, gt_rawimage_filename, initFrame, endFrame, outputFilename):
     gt_rawimage = vigra.impex.readHDF5(gt_rawimage_filename, 'volume/data')
     features = compute_features(gt_rawimage, read_in_images(initFrame, endFrame, filepath), initFrame, endFrame)
     mylabels = read_positiveLabels(initFrame,endFrame,filepath)
@@ -119,7 +119,8 @@ def TrainRF(filepath, gt_rawimage_filename, initFrame, endFrame):
     mydata, endlabels =  allFeatures(features, mylabels, neg_labels)
     rf = vigra.learning.RandomForest()
     rf.learnRF(mydata.astype("float32"), (np.asarray(endlabels)).astype("uint32").reshape(-1,1))
-    return rf
+    rf.writeHDF5(outputFilename)
+    #return rf
 
 if __name__ == '__main__':
     import argparse
@@ -134,8 +135,10 @@ if __name__ == '__main__':
                         help="where to begin reading the frames")
     parser.add_argument("endFrame", default=0, type=int, 
                         help="where to end frames")
+    parser.add_argument("outputFilename",
+                        help="save RF into file", metavar="FILE")
     args = parser.parse_args()
-    TrainRF(args.filepath, args.rawimage_filename, args.initFrame, args.endFrame) #returns learned RF
+    TrainRF(args.filepath, args.rawimage_filename, args.initFrame, args.endFrame, args.outputFilename) #returns learned RF
 
     #initFrame = 0
     #endFrame = 20
