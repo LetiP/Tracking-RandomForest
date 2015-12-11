@@ -20,7 +20,7 @@ def read_in_images(n1,n2, filepath):
 
 #compute features from input data and return them
 def compute_features(raw_image, labeled_image, n1, n2):
-    #perhaps there is an elegant way to get into the RegionFeatureAccumulator. For now, the new feature are a seperate vector
+    #perhaps there is an elegant way to get into the RegionFeatureAccumulator. For now, the new feature are a separate vector
     features = [0]*(n2-n1)
     allFeat = [0]*(n2-n1)
     for i in range(0,n2-n1):
@@ -95,7 +95,6 @@ def allFeatures(features, labels, neg_labels):
 
 def allFeatures_for_prediction(features, labels):
     j=0
-    lab=[]
     for i in range(0,len(features)-1):
         for k in labels[i]:
             if j == 0:
@@ -103,7 +102,6 @@ def allFeatures_for_prediction(features, labels):
                 j+=1
             else:
                 x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
-            lab.append(1)
     x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
     return x
 
@@ -113,13 +111,40 @@ class TransitionClassifier:
         self.mydata = None
         self.labels = []
         
-    def addSample(self, features, label):
-        self.labels = np.concatenate((np.array(self.labels),label))
+    def addSample(self, f1, f2, label):
+        #if self.labels == []:
+        self.labels.append(label)
+        #else:
+        #    self.labels = np.concatenate((np.array(self.labels),label)) # for adding batches of features
+        res=[]; res2=[]
+        res=[]; res2=[]
+
+        for key in f1:
+            if key == "Global<Maximum >" or key=="Global<Minimum >": #this ones have only one element
+                res.append(f1[key]-f2[key])
+                res2.append(f1[key]*f2[key])
+            elif key == 'RegionCenter':
+                res.append(np.linalg.norm(f1[key]-f2[key])) #difference of features
+                res2.append(np.linalg.norm(f1[key]*f2[key])) #product of features
+            elif key == 'Histogram': #contains only zeros, so trying to see what the prediction is without it
+                continue
+            elif key == 'Polygon': #vect has always another length for different objects, so center would be relevant
+                continue
+            else:
+                res.append((f1[key]-f2[key]).tolist() )  #prepare for flattening
+                res2.append((f1[key]*f2[key]).tolist() )  #prepare for flattening
+        x= np.asarray(flatten(res)) #flatten
+        x2= np.asarray(flatten(res2)) #flatten
+        #x= x[~np.isnan(x)]
+        #x2= x2[~np.isnan(x2)] #not getting the nans out YET
+        features = np.concatenate((x,x2))
         if self.mydata == None:
-            self.mydata = features[1]
-        self.mydata = np.vstack((self.mydata, features))
-        self.mydata = np.delete(self.mydata,0, axis = 0)
-    
+            self.mydata = features
+        else:
+            self.mydata = np.vstack((self.mydata, features))
+            #self.mydata = np.delete(self.mydata,0, axis=0)
+        #self.mydata = self.mydata[:,~np.isnan(self.mydata).any(axis=0)] #erasing the NaNs
+
     def train(self):
         self.rf.learnRF(self.mydata.astype("float32"), (np.asarray(self.labels)).astype("uint32").reshape(-1,1))
     
@@ -155,9 +180,21 @@ if __name__ == '__main__':
     features = compute_features(gt_rawimage,read_in_images(initFrame,endFrame, filepath),initFrame,endFrame)
     mylabels = read_positiveLabels(initFrame,endFrame,filepath)
     neg_labels = negativeLabels(features,mylabels)
-    mydata, endlabels =  allFeatures(features, mylabels, neg_labels)
-
     TC = TransitionClassifier()
-    TC.addSample(mydata, endlabels)
+    # compute featuresA for each object A from the feature matrix from Vigra
+    def compute_ObjFeatures(features, obj):
+        dict={}
+        for key in features:
+            if key == "Global<Maximum >" or key=="Global<Minimum >": #this ones have only one element
+                 dict[key] = features[key]
+            else:
+                 dict[key] = features[key][obj]
+        return dict
+    
+    for k in range(0,len(features)-1):
+        for i in mylabels[k]:
+            TC.addSample(compute_ObjFeatures(features[k], i[0]), compute_ObjFeatures(features[k+1], i[1]), 1)   #positive
+        for i in neg_labels[k]:
+            TC.addSample(compute_ObjFeatures(features[k], i[0]), compute_ObjFeatures(features[k+1], i[1]), 0)    #negative
     TC.train()
     TC.writeRF(args.outputFilename) #writes learned RF to disk
