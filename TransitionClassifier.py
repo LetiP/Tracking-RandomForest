@@ -144,13 +144,30 @@ class TransitionClassifier:
             self.mydata = np.vstack((self.mydata, features))
             #self.mydata = np.delete(self.mydata,0, axis=0)
         #self.mydata = self.mydata[:,~np.isnan(self.mydata).any(axis=0)] #erasing the NaNs
-
+        
+    #adding a comfortable function, where one can easily introduce the data
+    def add_allData(self, mydata, labels):
+        self.mydata = mydata
+        self.labels = labels
     def train(self):
         self.rf.learnRF(self.mydata.astype("float32"), (np.asarray(self.labels)).astype("uint32").reshape(-1,1))
     
     def predictSample(self, test_data):
         return self.rf.predictLabels(test_data.astype('float32'))
-
+    
+    def predictProbabilities(self, test_data):
+        return self.rf.predictProbabilities(test_data.astype('float32'))
+        
+    def predictLabels(self, test_data, threshold=0.5):
+        prob = self.rf.predictProbabilities(test_data.astype('float32'))
+        res = np.copy(prob)
+        for i in range(0,len(prob)):
+            if prob[i][1]>= threshold:
+                res[i]=1.
+            else:
+                res[i]=0
+        return np.delete(res, 0, 1)
+                                            
     def writeRF(self, outputFilename):
         self.rf.writeHDF5(outputFilename)
 
