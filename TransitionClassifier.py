@@ -105,14 +105,16 @@ class TransitionClassifier:
         self.rf = vigra.learning.RandomForest()
         self.mydata = None
         self.labels = []
+        self.selectedFeatures = None
         
     def addSample(self, f1, f2, label):
         #if self.labels == []:
         self.labels.append(label)
         #else:
         #    self.labels = np.concatenate((np.array(self.labels),label)) # for adding batches of features
-        res=[]; res2=[]
-        res=[]; res2=[]
+        res=[]
+        res2=[]
+        selectedFeatures = [] # store which features were added
 
         for key in f1:
             if key == "Global<Maximum >" or key=="Global<Minimum >":
@@ -128,6 +130,8 @@ class TransitionClassifier:
             else:
                 res.append((f1[key]-f2[key]).tolist() )  #prepare for flattening
                 res2.append((f1[key]*f2[key]).tolist() )  #prepare for flattening
+            selectedFeatures.append(key)
+
         x= np.asarray(flatten(res)) #flatten
         x2= np.asarray(flatten(res2)) #flatten
         assert(np.any(np.isnan(x)) == False)
@@ -143,6 +147,15 @@ class TransitionClassifier:
             self.mydata = np.vstack((self.mydata, features))
             #self.mydata = np.delete(self.mydata,0, axis=0)
         #self.mydata = self.mydata[:,~np.isnan(self.mydata).any(axis=0)] #erasing the NaNs
+
+        # check that the list of selected features matches those that were used for previous samples
+        if self.selectedFeatures is None:
+            self.selectedFeatures = selectedFeatures
+        else:
+            assert(len(self.selectedFeatures) == len(selectedFeatures))
+            # perform element-wise comparison of the two lists of selected features, as the ordering is important
+            for a,b in zip(self.selectedFeatures, selectedFeatures):
+                assert a == b
         
     #adding a comfortable function, where one can easily introduce the data
     def add_allData(self, mydata, labels):
@@ -168,7 +181,14 @@ class TransitionClassifier:
         return np.delete(res, 0, 1)
                                             
     def writeRF(self, outputFilename):
-        self.rf.writeHDF5(outputFilename)
+        self.rf.writeHDF5(outputFilename, pathInFile='/ClassifierForests/0000')
+
+        # write selected features
+        with h5py.File(outputFilename, 'r+') as f:
+            featureNamesH5 = f.create_group('SelectedFeatures')
+            featureNamesH5 = featureNamesH5.create_group('Standard Object Features')
+            for feature in self.selectedFeatures:
+                featureNamesH5.create_group(feature)
 
 if __name__ == '__main__':
     import argparse
@@ -224,4 +244,7 @@ if __name__ == '__main__':
         for i in neg_labels[k]:
             TC.addSample(compute_ObjFeatures(features[k], i[0]), compute_ObjFeatures(features[k+1], i[1]), 0)    #negative
     TC.train()
+
+    # delete file before writing
+    os.remove(args.outputFilename)
     TC.writeRF(args.outputFilename) #writes learned RF to disk
