@@ -22,9 +22,9 @@ def compute_features(raw_image, labeled_image, n1, n2):
     features = [0]*(n2-n1)
     allFeat = [0]*(n2-n1)
     for i in range(0,n2-n1):
-        features[i] = vigra.analysis.extractRegionFeatures(raw_image[:,:,i,0].astype('float32'),labeled_image[i][:,:,0], ignoreLabel=0)
-        tempnew1 = vigra.analysis.extractConvexHullFeatures(labeled_image[i][:,:,0].squeeze().astype(np.uint32), ignoreLabel=0)
-        tempnew2 = vigra.analysis.extractSkeletonFeatures(labeled_image[i][:,:,0].squeeze().astype(np.uint32))
+        features[i] = vigra.analysis.extractRegionFeatures(raw_image[...,i,0].astype('float32'),labeled_image[i][...,0], ignoreLabel=0)
+        tempnew1 = vigra.analysis.extractConvexHullFeatures(labeled_image[i][...,0].squeeze().astype(np.uint32), ignoreLabel=0)
+        tempnew2 = vigra.analysis.extractSkeletonFeatures(labeled_image[i][...,0].squeeze().astype(np.uint32))
         allFeat[i] = dict(features[i].items()+tempnew1.items()+tempnew2.items())
     return allFeat
 
@@ -185,6 +185,9 @@ if __name__ == '__main__':
                         help="save RF into file", metavar="FILE")
     parser.add_argument("--filename-zero-padding", dest='filename_zero_padding', default=5, type=int,
                         help="Number of digits each file name should be long")
+    parser.add_argument("--time-axis-index", dest='time_axis_index', default=2, type=int,
+                        help="Zero-based index of the time axis in your raw data. E.g. if it has shape (x,t,y,c) this value is 1.")
+
     args = parser.parse_args()
 
     filepath = args.filepath
@@ -194,6 +197,9 @@ if __name__ == '__main__':
     fileFormatString = '{'+':0{}'.format(args.filename_zero_padding)+'}.h5'
 
     rawimage = vigra.impex.readHDF5(rawimage_filename, args.rawimage_h5_path)
+    # transform such that the order is the following: X,Y,(Z),T, C
+    rawimage = np.rollaxis(rawimage, args.time_axis_index, -1)
+
     features = compute_features(rawimage,read_in_images(initFrame,endFrame, filepath, fileFormatString),initFrame,endFrame)
     mylabels = read_positiveLabels(initFrame,endFrame,filepath, fileFormatString)
     neg_labels = negativeLabels(features,mylabels)
