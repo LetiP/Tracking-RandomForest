@@ -65,7 +65,7 @@ def negativeLabels(features, positiveLabels):
     for i in range(1, len(features)):
         kdt = KDTree(features[i]['RegionCenter'], metric='euclidean')
         neighb = kdt.query(features[i-1]['RegionCenter'], k=3, return_distance=False)
-        for j in range(1, len(features[i])):
+        for j in range(1, len(positiveLabels)):
             for m in range(0, neighb.shape[1]):
                 neg_lab[i].append([j,neighb[j][m]])
     return neg_lab
