@@ -181,7 +181,7 @@ class TransitionClassifier:
         return np.delete(res, 0, 1)
                                             
     def writeRF(self, outputFilename):
-        self.rf.writeHDF5(outputFilename, pathInFile='/ClassifierForests/0000')
+        self.rf.writeHDF5(outputFilename, pathInFile='/ClassifierForests/Forest0000')
 
         # write selected features
         with h5py.File(outputFilename, 'r+') as f:
