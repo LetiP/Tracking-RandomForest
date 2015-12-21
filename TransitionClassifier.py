@@ -34,9 +34,9 @@ def compute_features(raw_image, labeled_image, n1, n2):
 def getFeatures(f1,f2,o1,o2):
     res=[]; res2=[]
     for key in f1:
-        if key == "Global<Maximum >" or key=="Global<Minimum >": #this ones have only one element
-            res.append(f1[key]-f2[key])
-            res2.append(f1[key]*f2[key])
+        if key == "Global<Maximum >" or key=="Global<Minimum >":
+            # the global min/max intensity is not interesting
+            continue
         elif key == 'RegionCenter':
             res.append(np.linalg.norm(f1[key][o1]-f2[key][o2])) #difference of features
             res2.append(np.linalg.norm(f1[key][o1]*f2[key][o2])) #product of features
@@ -120,9 +120,9 @@ class TransitionClassifier:
         res=[]; res2=[]
 
         for key in f1:
-            if key == "Global<Maximum >" or key=="Global<Minimum >": #this ones have only one element
-                res.append(f1[key]-f2[key])
-                res2.append(f1[key]*f2[key])
+            if key == "Global<Maximum >" or key=="Global<Minimum >":
+                # the global min/max intensity is not interesting
+                continue
             elif key == 'RegionCenter':
                 res.append(np.linalg.norm(f1[key]-f2[key])) #difference of features
                 res2.append(np.linalg.norm(f1[key]*f2[key])) #product of features
