@@ -130,10 +130,14 @@ class TransitionClassifier:
                 res2.append((f1[key]*f2[key]).tolist() )  #prepare for flattening
         x= np.asarray(flatten(res)) #flatten
         x2= np.asarray(flatten(res2)) #flatten
+        assert(np.any(np.isnan(x)) == False)
+        assert(np.any(np.isnan(x2)) == False)
+        assert(np.any(np.isinf(x)) == False)
+        assert(np.any(np.isinf(x2)) == False)
         #x= x[~np.isnan(x)]
         #x2= x2[~np.isnan(x2)] #not getting the nans out YET
         features = np.concatenate((x,x2))
-        if self.mydata == None:
+        if self.mydata is None:
             self.mydata = features
         else:
             self.mydata = np.vstack((self.mydata, features))
