@@ -6,15 +6,13 @@ from sklearn.neighbors import KDTree
 from sklearn.cross_validation import KFold
 from sklearn.metrics import precision_recall_fscore_support
 from compiler.ast import flatten
+import os
 
 #read in 'n2-n1' of images
-def read_in_images(n1,n2, filepath):
+def read_in_images(n1,n2, filepath, fileFormatString='{:05}.h5'):
     gt_labelimage_filename = [0]*(n2-n1)
     for i in range(n1,n2):
-        if i<10:
-            gt_labelimage_filename[i-n1] = str(filepath)+'0000'+str(i)+'.h5'
-        else:
-            gt_labelimage_filename[i-n1] = str(filepath)+'000'+str(i)+'.h5'
+        gt_labelimage_filename[i-n1] = os.path.join(str(filepath), fileFormatString.format(i))
     gt_labelimage = [vigra.impex.readHDF5(gt_labelimage_filename[i], 'segmentation/labels') for i in range(0,n2-n1)]
     return gt_labelimage
 
@@ -54,13 +52,10 @@ def getFeatures(f1,f2,o1,o2):
     return np.concatenate((x,x2))
 
 #read in 'n2-n1' of labels
-def read_positiveLabels(n1,n2, filepath):
+def read_positiveLabels(n1,n2, filepath, fileFormatString='{:05}.h5'):
     gt_labels_filename = [0]*(n2-n1)
     for i in range(n1+1,n2 ): #the first one contains no moves data
-        if i<10:
-            gt_labels_filename[i-n1] = str(filepath)+'0000'+str(i)+'.h5'
-        else:
-            gt_labels_filename[i-n1] = str(filepath)+'000'+str(i)+'.h5'
+        gt_labels_filename[i-n1] = os.path.join(str(filepath), fileFormatString.format(i))
     gt_labelimage = [vigra.impex.readHDF5(gt_labels_filename[i], 'tracking/Moves') for i in range(1,n2-n1)]
     return gt_labelimage
 
@@ -174,28 +169,33 @@ class TransitionClassifier:
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description="trainRF")
+    parser = argparse.ArgumentParser(description="trainRF",
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("filepath",
-                        help="read from filepath", metavar="FILE")
-
+                        help="read ground truth from this folder", metavar="FILE")
     parser.add_argument("rawimage_filename",
                         help="filepath+name of the raw image", metavar="FILE")
+    parser.add_argument("--rawimage-h5-path", dest='rawimage_h5_path', type=str,
+                        help="Path inside the rawimage HDF5 file", default='volume/data')
     parser.add_argument("initFrame", default=0, type=int, 
                         help="where to begin reading the frames")
     parser.add_argument("endFrame", default=0, type=int, 
                         help="where to end frames")
     parser.add_argument("outputFilename",
                         help="save RF into file", metavar="FILE")
+    parser.add_argument("--filename-zero-padding", dest='filename_zero_padding', default=5, type=int,
+                        help="Number of digits each file name should be long")
     args = parser.parse_args()
 
     filepath = args.filepath
     rawimage_filename = args.rawimage_filename
     initFrame = args.initFrame
     endFrame = args.endFrame
+    fileFormatString = '{'+':0{}'.format(args.filename_zero_padding)+'}.h5'
 
-    gt_rawimage = vigra.impex.readHDF5(rawimage_filename, 'volume/data')
-    features = compute_features(gt_rawimage,read_in_images(initFrame,endFrame, filepath),initFrame,endFrame)
-    mylabels = read_positiveLabels(initFrame,endFrame,filepath)
+    rawimage = vigra.impex.readHDF5(rawimage_filename, args.rawimage_h5_path)
+    features = compute_features(rawimage,read_in_images(initFrame,endFrame, filepath, fileFormatString),initFrame,endFrame)
+    mylabels = read_positiveLabels(initFrame,endFrame,filepath, fileFormatString)
     neg_labels = negativeLabels(features,mylabels)
     TC = TransitionClassifier()
     # compute featuresA for each object A from the feature matrix from Vigra
