@@ -22,10 +22,17 @@ def compute_features(raw_image, labeled_image, n1, n2):
     features = [0]*(n2-n1)
     allFeat = [0]*(n2-n1)
     for i in range(0,n2-n1):
+        if len(labeled_image[i].shape) < len(raw_image.shape) - 1:
+            # this was probably a missing channel axis, thus adding one at the end
+            labeled_image = np.expand_dims(labeled_image, axis=-1)
+
         features[i] = vigra.analysis.extractRegionFeatures(raw_image[...,i,0].astype('float32'),labeled_image[i][...,0], ignoreLabel=0)
-        tempnew1 = vigra.analysis.extractConvexHullFeatures(labeled_image[i][...,0].squeeze().astype(np.uint32), ignoreLabel=0)
-        tempnew2 = vigra.analysis.extractSkeletonFeatures(labeled_image[i][...,0].squeeze().astype(np.uint32))
-        allFeat[i] = dict(features[i].items()+tempnew1.items()+tempnew2.items())
+        if len(raw_image.shape) < 5:
+            tempnew1 = vigra.analysis.extractConvexHullFeatures(labeled_image[i][...,0].squeeze().astype(np.uint32), ignoreLabel=0)
+            tempnew2 = vigra.analysis.extractSkeletonFeatures(labeled_image[i][...,0].squeeze().astype(np.uint32))
+            allFeat[i] = dict(features[i].items()+tempnew1.items()+tempnew2.items())
+        else:
+            allFeat[i] = dict(features[i].items())
     return allFeat
 
 #return a feature vector of two objects (f1-f2,f1*f2)
@@ -100,12 +107,30 @@ def allFeatures_for_prediction(features, labels):
     x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
     return x
 
+def find_features_without_NaNs(features):
+    """
+    Remove all features from the list of selected features which have NaNs
+    """
+    selectedFeatures = features[0].keys()
+    for featuresPerFrame in features:
+        for key, value in featuresPerFrame.iteritems():
+            if not isinstance(value, list) and np.any(np.isnan(value)):
+                try:
+                    selectedFeatures.remove(key)
+                except:
+                    pass # has already been deleted
+    forbidden = ["Global<Maximum >", "Global<Minimum >", 'Histogram', 'Polygon']
+    for f in forbidden:
+        if f in selectedFeatures:
+            selectedFeatures.remove(f)
+    return selectedFeatures
+
 class TransitionClassifier:
-    def __init__(self):
+    def __init__(self, selectedFeatures):
         self.rf = vigra.learning.RandomForest()
         self.mydata = None
         self.labels = []
-        self.selectedFeatures = None
+        self.selectedFeatures = selectedFeatures
         
     def addSample(self, f1, f2, label):
         #if self.labels == []:
@@ -114,9 +139,8 @@ class TransitionClassifier:
         #    self.labels = np.concatenate((np.array(self.labels),label)) # for adding batches of features
         res=[]
         res2=[]
-        selectedFeatures = [] # store which features were added
-
-        for key in f1:
+        
+        for key in selectedFeatures:
             if key == "Global<Maximum >" or key=="Global<Minimum >":
                 # the global min/max intensity is not interesting
                 continue
@@ -130,7 +154,6 @@ class TransitionClassifier:
             else:
                 res.append((f1[key]-f2[key]).tolist() )  #prepare for flattening
                 res2.append((f1[key]*f2[key]).tolist() )  #prepare for flattening
-            selectedFeatures.append(key)
 
         x= np.asarray(flatten(res)) #flatten
         x2= np.asarray(flatten(res2)) #flatten
@@ -148,14 +171,6 @@ class TransitionClassifier:
             #self.mydata = np.delete(self.mydata,0, axis=0)
         #self.mydata = self.mydata[:,~np.isnan(self.mydata).any(axis=0)] #erasing the NaNs
 
-        # check that the list of selected features matches those that were used for previous samples
-        if self.selectedFeatures is None:
-            self.selectedFeatures = selectedFeatures
-        else:
-            assert(len(self.selectedFeatures) == len(selectedFeatures))
-            # perform element-wise comparison of the two lists of selected features, as the ordering is important
-            for a,b in zip(self.selectedFeatures, selectedFeatures):
-                assert a == b
         
     #adding a comfortable function, where one can easily introduce the data
     def add_allData(self, mydata, labels):
@@ -210,7 +225,7 @@ if __name__ == '__main__':
     parser.add_argument("--filename-zero-padding", dest='filename_zero_padding', default=5, type=int,
                         help="Number of digits each file name should be long")
     parser.add_argument("--time-axis-index", dest='time_axis_index', default=2, type=int,
-                        help="Zero-based index of the time axis in your raw data. E.g. if it has shape (x,t,y,c) this value is 1.")
+                        help="Zero-based index of the time axis in your raw data. E.g. if it has shape (x,t,y,c) this value is 1. Set to -1 to disable any changes")
 
     args = parser.parse_args()
 
@@ -221,13 +236,19 @@ if __name__ == '__main__':
     fileFormatString = '{'+':0{}'.format(args.filename_zero_padding)+'}.h5'
 
     rawimage = vigra.impex.readHDF5(rawimage_filename, args.rawimage_h5_path)
+    try:
+        print(rawimage.axistags)
+    except:
+        pass
     # transform such that the order is the following: X,Y,(Z),T, C
-    rawimage = np.rollaxis(rawimage, args.time_axis_index, -1)
+    if args.time_axis_index != -1:
+        rawimage = np.rollaxis(rawimage, args.time_axis_index, -1)
 
     features = compute_features(rawimage,read_in_images(initFrame,endFrame, filepath, fileFormatString),initFrame,endFrame)
+    selectedFeatures = find_features_without_NaNs(features)
     mylabels = read_positiveLabels(initFrame,endFrame,filepath, fileFormatString)
     neg_labels = negativeLabels(features,mylabels)
-    TC = TransitionClassifier()
+    TC = TransitionClassifier(selectedFeatures)
     # compute featuresA for each object A from the feature matrix from Vigra
     def compute_ObjFeatures(features, obj):
         dict={}
@@ -246,5 +267,6 @@ if __name__ == '__main__':
     TC.train()
 
     # delete file before writing
-    os.remove(args.outputFilename)
+    if os.path.exists(args.outputFilename):
+        os.remove(args.outputFilename)
     TC.writeRF(args.outputFilename) #writes learned RF to disk
