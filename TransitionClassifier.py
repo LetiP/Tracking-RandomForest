@@ -6,15 +6,13 @@ from sklearn.neighbors import KDTree
 from sklearn.cross_validation import KFold
 from sklearn.metrics import precision_recall_fscore_support
 from compiler.ast import flatten
+import os
 
 #read in 'n2-n1' of images
-def read_in_images(n1,n2, filepath):
+def read_in_images(n1,n2, filepath, fileFormatString='{:05}.h5'):
     gt_labelimage_filename = [0]*(n2-n1)
     for i in range(n1,n2):
-        if i<10:
-            gt_labelimage_filename[i-n1] = str(filepath)+'0000'+str(i)+'.h5'
-        else:
-            gt_labelimage_filename[i-n1] = str(filepath)+'000'+str(i)+'.h5'
+        gt_labelimage_filename[i-n1] = os.path.join(str(filepath), fileFormatString.format(i))
     gt_labelimage = [vigra.impex.readHDF5(gt_labelimage_filename[i], 'segmentation/labels') for i in range(0,n2-n1)]
     return gt_labelimage
 
@@ -24,19 +22,26 @@ def compute_features(raw_image, labeled_image, n1, n2):
     features = [0]*(n2-n1)
     allFeat = [0]*(n2-n1)
     for i in range(0,n2-n1):
-        features[i] = vigra.analysis.extractRegionFeatures(raw_image[:,:,i,0].astype('float32'),labeled_image[i][:,:,0], ignoreLabel=0)
-        tempnew1 = vigra.analysis.extractConvexHullFeatures(labeled_image[i][:,:,0].squeeze().astype(np.uint32), ignoreLabel=0)
-        tempnew2 = vigra.analysis.extractSkeletonFeatures(labeled_image[i][:,:,0].squeeze().astype(np.uint32))
-        allFeat[i] = dict(features[i].items()+tempnew1.items()+tempnew2.items())
+        if len(labeled_image[i].shape) < len(raw_image.shape) - 1:
+            # this was probably a missing channel axis, thus adding one at the end
+            labeled_image = np.expand_dims(labeled_image, axis=-1)
+
+        features[i] = vigra.analysis.extractRegionFeatures(raw_image[...,i,0].astype('float32'),labeled_image[i][...,0], ignoreLabel=0)
+        if len(raw_image.shape) < 5:
+            tempnew1 = vigra.analysis.extractConvexHullFeatures(labeled_image[i][...,0].squeeze().astype(np.uint32), ignoreLabel=0)
+            tempnew2 = vigra.analysis.extractSkeletonFeatures(labeled_image[i][...,0].squeeze().astype(np.uint32))
+            allFeat[i] = dict(features[i].items()+tempnew1.items()+tempnew2.items())
+        else:
+            allFeat[i] = dict(features[i].items())
     return allFeat
 
 #return a feature vector of two objects (f1-f2,f1*f2)
 def getFeatures(f1,f2,o1,o2):
     res=[]; res2=[]
     for key in f1:
-        if key == "Global<Maximum >" or key=="Global<Minimum >": #this ones have only one element
-            res.append(f1[key]-f2[key])
-            res2.append(f1[key]*f2[key])
+        if key == "Global<Maximum >" or key=="Global<Minimum >":
+            # the global min/max intensity is not interesting
+            continue
         elif key == 'RegionCenter':
             res.append(np.linalg.norm(f1[key][o1]-f2[key][o2])) #difference of features
             res2.append(np.linalg.norm(f1[key][o1]*f2[key][o2])) #product of features
@@ -54,13 +59,10 @@ def getFeatures(f1,f2,o1,o2):
     return np.concatenate((x,x2))
 
 #read in 'n2-n1' of labels
-def read_positiveLabels(n1,n2, filepath):
+def read_positiveLabels(n1,n2, filepath, fileFormatString='{:05}.h5'):
     gt_labels_filename = [0]*(n2-n1)
     for i in range(n1+1,n2 ): #the first one contains no moves data
-        if i<10:
-            gt_labels_filename[i-n1] = str(filepath)+'0000'+str(i)+'.h5'
-        else:
-            gt_labels_filename[i-n1] = str(filepath)+'000'+str(i)+'.h5'
+        gt_labels_filename[i-n1] = os.path.join(str(filepath), fileFormatString.format(i))
     gt_labelimage = [vigra.impex.readHDF5(gt_labels_filename[i], 'tracking/Moves') for i in range(1,n2-n1)]
     return gt_labelimage
 
@@ -70,7 +72,7 @@ def negativeLabels(features, positiveLabels):
     for i in range(1, len(features)):
         kdt = KDTree(features[i]['RegionCenter'], metric='euclidean')
         neighb = kdt.query(features[i-1]['RegionCenter'], k=3, return_distance=False)
-        for j in range(1, len(features[i])):
+        for j in range(1, len(positiveLabels)):
             for m in range(0, neighb.shape[1]):
                 neg_lab[i].append([j,neighb[j][m]])
     return neg_lab
@@ -105,24 +107,43 @@ def allFeatures_for_prediction(features, labels):
     x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
     return x
 
+def find_features_without_NaNs(features):
+    """
+    Remove all features from the list of selected features which have NaNs
+    """
+    selectedFeatures = features[0].keys()
+    for featuresPerFrame in features:
+        for key, value in featuresPerFrame.iteritems():
+            if not isinstance(value, list) and np.any(np.isnan(value)):
+                try:
+                    selectedFeatures.remove(key)
+                except:
+                    pass # has already been deleted
+    forbidden = ["Global<Maximum >", "Global<Minimum >", 'Histogram', 'Polygon']
+    for f in forbidden:
+        if f in selectedFeatures:
+            selectedFeatures.remove(f)
+    return selectedFeatures
+
 class TransitionClassifier:
-    def __init__(self):
+    def __init__(self, selectedFeatures):
         self.rf = vigra.learning.RandomForest()
         self.mydata = None
         self.labels = []
+        self.selectedFeatures = selectedFeatures
         
     def addSample(self, f1, f2, label):
         #if self.labels == []:
         self.labels.append(label)
         #else:
         #    self.labels = np.concatenate((np.array(self.labels),label)) # for adding batches of features
-        res=[]; res2=[]
-        res=[]; res2=[]
-
-        for key in f1:
-            if key == "Global<Maximum >" or key=="Global<Minimum >": #this ones have only one element
-                res.append(f1[key]-f2[key])
-                res2.append(f1[key]*f2[key])
+        res=[]
+        res2=[]
+        
+        for key in selectedFeatures:
+            if key == "Global<Maximum >" or key=="Global<Minimum >":
+                # the global min/max intensity is not interesting
+                continue
             elif key == 'RegionCenter':
                 res.append(np.linalg.norm(f1[key]-f2[key])) #difference of features
                 res2.append(np.linalg.norm(f1[key]*f2[key])) #product of features
@@ -133,17 +154,23 @@ class TransitionClassifier:
             else:
                 res.append((f1[key]-f2[key]).tolist() )  #prepare for flattening
                 res2.append((f1[key]*f2[key]).tolist() )  #prepare for flattening
+
         x= np.asarray(flatten(res)) #flatten
         x2= np.asarray(flatten(res2)) #flatten
+        assert(np.any(np.isnan(x)) == False)
+        assert(np.any(np.isnan(x2)) == False)
+        assert(np.any(np.isinf(x)) == False)
+        assert(np.any(np.isinf(x2)) == False)
         #x= x[~np.isnan(x)]
         #x2= x2[~np.isnan(x2)] #not getting the nans out YET
         features = np.concatenate((x,x2))
-        if self.mydata == None:
+        if self.mydata is None:
             self.mydata = features
         else:
             self.mydata = np.vstack((self.mydata, features))
             #self.mydata = np.delete(self.mydata,0, axis=0)
         #self.mydata = self.mydata[:,~np.isnan(self.mydata).any(axis=0)] #erasing the NaNs
+
         
     #adding a comfortable function, where one can easily introduce the data
     def add_allData(self, mydata, labels):
@@ -169,35 +196,59 @@ class TransitionClassifier:
         return np.delete(res, 0, 1)
                                             
     def writeRF(self, outputFilename):
-        self.rf.writeHDF5(outputFilename)
+        self.rf.writeHDF5(outputFilename, pathInFile='/ClassifierForests/Forest0000')
+
+        # write selected features
+        with h5py.File(outputFilename, 'r+') as f:
+            featureNamesH5 = f.create_group('SelectedFeatures')
+            featureNamesH5 = featureNamesH5.create_group('Standard Object Features')
+            for feature in self.selectedFeatures:
+                featureNamesH5.create_group(feature)
 
 if __name__ == '__main__':
     import argparse
 
-    parser = argparse.ArgumentParser(description="trainRF")
+    parser = argparse.ArgumentParser(description="trainRF",
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("filepath",
-                        help="read from filepath", metavar="FILE")
-
+                        help="read ground truth from this folder", metavar="FILE")
     parser.add_argument("rawimage_filename",
                         help="filepath+name of the raw image", metavar="FILE")
+    parser.add_argument("--rawimage-h5-path", dest='rawimage_h5_path', type=str,
+                        help="Path inside the rawimage HDF5 file", default='volume/data')
     parser.add_argument("initFrame", default=0, type=int, 
                         help="where to begin reading the frames")
     parser.add_argument("endFrame", default=0, type=int, 
                         help="where to end frames")
     parser.add_argument("outputFilename",
                         help="save RF into file", metavar="FILE")
+    parser.add_argument("--filename-zero-padding", dest='filename_zero_padding', default=5, type=int,
+                        help="Number of digits each file name should be long")
+    parser.add_argument("--time-axis-index", dest='time_axis_index', default=2, type=int,
+                        help="Zero-based index of the time axis in your raw data. E.g. if it has shape (x,t,y,c) this value is 1. Set to -1 to disable any changes")
+
     args = parser.parse_args()
 
     filepath = args.filepath
     rawimage_filename = args.rawimage_filename
     initFrame = args.initFrame
     endFrame = args.endFrame
+    fileFormatString = '{'+':0{}'.format(args.filename_zero_padding)+'}.h5'
 
-    gt_rawimage = vigra.impex.readHDF5(rawimage_filename, 'volume/data')
-    features = compute_features(gt_rawimage,read_in_images(initFrame,endFrame, filepath),initFrame,endFrame)
-    mylabels = read_positiveLabels(initFrame,endFrame,filepath)
+    rawimage = vigra.impex.readHDF5(rawimage_filename, args.rawimage_h5_path)
+    try:
+        print(rawimage.axistags)
+    except:
+        pass
+    # transform such that the order is the following: X,Y,(Z),T, C
+    if args.time_axis_index != -1:
+        rawimage = np.rollaxis(rawimage, args.time_axis_index, -1)
+
+    features = compute_features(rawimage,read_in_images(initFrame,endFrame, filepath, fileFormatString),initFrame,endFrame)
+    selectedFeatures = find_features_without_NaNs(features)
+    mylabels = read_positiveLabels(initFrame,endFrame,filepath, fileFormatString)
     neg_labels = negativeLabels(features,mylabels)
-    TC = TransitionClassifier()
+    TC = TransitionClassifier(selectedFeatures)
     # compute featuresA for each object A from the feature matrix from Vigra
     def compute_ObjFeatures(features, obj):
         dict={}
@@ -214,4 +265,8 @@ if __name__ == '__main__':
         for i in neg_labels[k]:
             TC.addSample(compute_ObjFeatures(features[k], i[0]), compute_ObjFeatures(features[k+1], i[1]), 0)    #negative
     TC.train()
+
+    # delete file before writing
+    if os.path.exists(args.outputFilename):
+        os.remove(args.outputFilename)
     TC.writeRF(args.outputFilename) #writes learned RF to disk
