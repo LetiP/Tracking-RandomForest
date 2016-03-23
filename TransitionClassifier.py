@@ -7,6 +7,7 @@ from sklearn.cross_validation import KFold
 from sklearn.metrics import precision_recall_fscore_support
 from compiler.ast import flatten
 import os
+np.seterr(all='raise')
 
 #read in 'n2-n1' of images
 def read_in_images(n1,n2, filepath, fileFormatString='{:05}.h5'):
@@ -95,7 +96,7 @@ def find_features_without_NaNs(features):
     selectedFeatures = features[0].keys()
     for featuresPerFrame in features:
         for key, value in featuresPerFrame.iteritems():
-            if not isinstance(value, list) and np.any(np.isnan(value)):
+            if not isinstance(value, list) and (np.any(np.isnan(value)) or np.any(np.isinf(value))):
                 try:
                     selectedFeatures.remove(key)
                 except:
@@ -133,8 +134,12 @@ class TransitionClassifier:
             elif key == 'Polygon': #vect has always another length for different objects, so center would be relevant
                 continue
             else:
-                res.append((f1[key]-f2[key]).tolist() )  #prepare for flattening
-                res2.append((f1[key]*f2[key]).tolist() )  #prepare for flattening
+                if not isinstance(f1[key], np.ndarray):
+                    res.append(float(f1[key]) - float(f2[key]) )  #prepare for flattening
+                    res2.append(float(f1[key]) * float(f2[key]) )  #prepare for flattening
+                else:
+                    res.append((f1[key]-f2[key]).tolist() )  #prepare for flattening
+                    res2.append((f1[key]*f2[key]).tolist() )  #prepare for flattening
 
         x= np.asarray(flatten(res)) #flatten
         x2= np.asarray(flatten(res2)) #flatten
