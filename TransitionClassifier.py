@@ -68,13 +68,24 @@ def read_positiveLabels(n1,n2, filepath, fileFormatString='{:05}.h5'):
 
 # compute negative labels by nearest neighbor
 def negativeLabels(features, positiveLabels):
-    neg_lab = [[]]*len(features)
-    for i in range(1, len(features)):
-        kdt = KDTree(features[i]['RegionCenter'], metric='euclidean')
-        neighb = kdt.query(features[i-1]['RegionCenter'], k=3, return_distance=False)
-        for j in range(1, len(positiveLabels)):
-            for m in range(0, neighb.shape[1]):
-                neg_lab[i].append([j,neighb[j][m]])
+    numFrames = len(features)
+    neg_lab = []
+    for i in range(1, numFrames):  # for all frames but the first
+        # print("Frame ", i)
+        frameNegLab = []
+        # build kdtree for frame i
+        kdt = KDTree(features[i]['RegionCenter'][1:,...], metric='euclidean')
+        # find k=3 nearest neighbors of each object of frame i-1 in frame i
+        neighb = kdt.query(features[i-1]['RegionCenter'][1:,...], k=3, return_distance=False)
+        for j in range(0, neighb.shape[0]):  # for all objects in frame i-1
+            for m in range(0, neighb.shape[1]):  # for all neighbors
+                pair = [j + 1, neighb[j][m] + 1]
+                if pair not in positiveLabels[i-1].tolist():
+                    frameNegLab.append(pair) # add one because we've removed the first element when creating the KD tree
+                    # print(pair)
+                # else:
+                #     print("Discarding negative example {} which is a positive annotation".format(pair))
+        neg_lab.append(frameNegLab)
     return neg_lab
 
 def find_features_without_NaNs(features):
