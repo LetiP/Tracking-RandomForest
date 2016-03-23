@@ -77,36 +77,6 @@ def negativeLabels(features, positiveLabels):
                 neg_lab[i].append([j,neighb[j][m]])
     return neg_lab
 
-def allFeatures(features, labels, neg_labels):
-    j=0
-    lab=[]
-    for i in range(0,len(features)-1):
-        for k in labels[i]:
-            if j == 0:
-                x = getFeatures(features[i],features[i+1],k[0],k[1])
-                j+=1
-            else:
-                x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
-            lab.append(1)
-        for k in neg_labels[i]:
-            if k not in labels[i].tolist():
-                x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
-                lab.append(0)
-    x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
-    return x,np.asarray(lab)
-
-def allFeatures_for_prediction(features, labels):
-    j=0
-    for i in range(0,len(features)-1):
-        for k in labels[i]:
-            if j == 0:
-                x = getFeatures(features[i],features[i+1],k[0],k[1])
-                j+=1
-            else:
-                x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
-    x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
-    return x
-
 def find_features_without_NaNs(features):
     """
     Remove all features from the list of selected features which have NaNs
