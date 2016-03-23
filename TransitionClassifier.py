@@ -147,7 +147,10 @@ class TransitionClassifier:
         self.mydata = mydata
         self.labels = labels
     def train(self):
-        self.rf.learnRF(self.mydata.astype("float32"), (np.asarray(self.labels)).astype("uint32").reshape(-1,1))
+        print("Training classifier from {} positive and {} negative labels".format(np.count_nonzero(np.asarray(self.labels)),
+                                                                                   len(self.labels)- np.count_nonzero(np.asarray(self.labels))))
+        oob = self.rf.learnRF(self.mydata.astype("float32"), (np.asarray(self.labels)).astype("uint32").reshape(-1,1))
+        print("RF trained with OOB Error ", oob)
     
     def predictSample(self, test_data):
         return self.rf.predictLabels(test_data.astype('float32'))
