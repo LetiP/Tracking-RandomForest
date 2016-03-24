@@ -7,6 +7,7 @@ from sklearn.cross_validation import KFold
 from sklearn.metrics import precision_recall_fscore_support
 from compiler.ast import flatten
 import os
+np.seterr(all='raise')
 
 #read in 'n2-n1' of images
 def read_in_images(n1,n2, filepath, fileFormatString='{:05}.h5'):
@@ -68,44 +69,25 @@ def read_positiveLabels(n1,n2, filepath, fileFormatString='{:05}.h5'):
 
 # compute negative labels by nearest neighbor
 def negativeLabels(features, positiveLabels):
-    neg_lab = [[]]*len(features)
-    for i in range(1, len(features)):
-        kdt = KDTree(features[i]['RegionCenter'], metric='euclidean')
-        neighb = kdt.query(features[i-1]['RegionCenter'], k=3, return_distance=False)
-        for j in range(1, len(positiveLabels)):
-            for m in range(0, neighb.shape[1]):
-                neg_lab[i].append([j,neighb[j][m]])
+    numFrames = len(features)
+    neg_lab = []
+    for i in range(1, numFrames):  # for all frames but the first
+        # print("Frame ", i)
+        frameNegLab = []
+        # build kdtree for frame i
+        kdt = KDTree(features[i]['RegionCenter'][1:,...], metric='euclidean')
+        # find k=3 nearest neighbors of each object of frame i-1 in frame i
+        neighb = kdt.query(features[i-1]['RegionCenter'][1:,...], k=3, return_distance=False)
+        for j in range(0, neighb.shape[0]):  # for all objects in frame i-1
+            for m in range(0, neighb.shape[1]):  # for all neighbors
+                pair = [j + 1, neighb[j][m] + 1]
+                if pair not in positiveLabels[i-1].tolist():
+                    frameNegLab.append(pair) # add one because we've removed the first element when creating the KD tree
+                    # print(pair)
+                # else:
+                #     print("Discarding negative example {} which is a positive annotation".format(pair))
+        neg_lab.append(frameNegLab)
     return neg_lab
-
-def allFeatures(features, labels, neg_labels):
-    j=0
-    lab=[]
-    for i in range(0,len(features)-1):
-        for k in labels[i]:
-            if j == 0:
-                x = getFeatures(features[i],features[i+1],k[0],k[1])
-                j+=1
-            else:
-                x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
-            lab.append(1)
-        for k in neg_labels[i]:
-            if k not in labels[i].tolist():
-                x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
-                lab.append(0)
-    x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
-    return x,np.asarray(lab)
-
-def allFeatures_for_prediction(features, labels):
-    j=0
-    for i in range(0,len(features)-1):
-        for k in labels[i]:
-            if j == 0:
-                x = getFeatures(features[i],features[i+1],k[0],k[1])
-                j+=1
-            else:
-                x = np.vstack((x,getFeatures(features[i],features[i+1],k[0],k[1])))
-    x = x[:,~np.isnan(x).any(axis=0)] #now removing the nans
-    return x
 
 def find_features_without_NaNs(features):
     """
@@ -114,7 +96,7 @@ def find_features_without_NaNs(features):
     selectedFeatures = features[0].keys()
     for featuresPerFrame in features:
         for key, value in featuresPerFrame.iteritems():
-            if not isinstance(value, list) and np.any(np.isnan(value)):
+            if not isinstance(value, list) and (np.any(np.isnan(value)) or np.any(np.isinf(value))):
                 try:
                     selectedFeatures.remove(key)
                 except:
@@ -152,8 +134,12 @@ class TransitionClassifier:
             elif key == 'Polygon': #vect has always another length for different objects, so center would be relevant
                 continue
             else:
-                res.append((f1[key]-f2[key]).tolist() )  #prepare for flattening
-                res2.append((f1[key]*f2[key]).tolist() )  #prepare for flattening
+                if not isinstance(f1[key], np.ndarray):
+                    res.append(float(f1[key]) - float(f2[key]) )  #prepare for flattening
+                    res2.append(float(f1[key]) * float(f2[key]) )  #prepare for flattening
+                else:
+                    res.append((f1[key]-f2[key]).tolist() )  #prepare for flattening
+                    res2.append((f1[key]*f2[key]).tolist() )  #prepare for flattening
 
         x= np.asarray(flatten(res)) #flatten
         x2= np.asarray(flatten(res2)) #flatten
@@ -177,7 +163,10 @@ class TransitionClassifier:
         self.mydata = mydata
         self.labels = labels
     def train(self):
-        self.rf.learnRF(self.mydata.astype("float32"), (np.asarray(self.labels)).astype("uint32").reshape(-1,1))
+        print("Training classifier from {} positive and {} negative labels".format(np.count_nonzero(np.asarray(self.labels)),
+                                                                                   len(self.labels)- np.count_nonzero(np.asarray(self.labels))))
+        oob = self.rf.learnRF(self.mydata.astype("float32"), (np.asarray(self.labels)).astype("uint32").reshape(-1,1))
+        print("RF trained with OOB Error ", oob)
     
     def predictSample(self, test_data):
         return self.rf.predictLabels(test_data.astype('float32'))
